@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TaskMind: RAG + LLM + agent task manager</title>
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#17202a;--mute:#5d6b78;--line:#d5dce3;--ac:#2f5d8a;--ag:#a9660c;--ok:#237a57;--bad:#b3372b}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+h1,h2,h3{font-family:"Iowan Old Style",Georgia,serif;margin:0;font-weight:600}
+button,input,select,textarea{font:inherit;color:inherit;border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:var(--panel)}
+button{cursor:pointer}button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button.a{background:var(--ag);color:#fff;border-color:var(--ag)}
+button.x{color:var(--bad)}:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+#auth{max-width:340px;margin:12vh auto;padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:8px;display:grid;gap:10px}
+#auth p,.m{color:var(--mute);font-size:13px;margin:0}
+header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+header h1{font-size:20px;margin-right:auto}
+.tab.on{background:var(--ink);color:#fff}
+main{max-width:980px;margin:0 auto;padding:18px 20px 60px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px}
+.stats div{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}.stats b{font-size:24px;display:block}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:4px 0 10px}.bar i{display:block;height:100%;background:var(--ok)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.row>input{flex:1;min-width:130px}
+.t{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:9px 0;border-top:1px solid var(--line)}
+.pri-high{color:var(--bad)}.pri-medium{color:var(--ag)}.pri-low{color:var(--mute)}
+#chat{height:340px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;margin-bottom:8px}
+.u{margin:8px 0 8px 18%;background:var(--ac);color:#fff;padding:8px 10px;border-radius:8px}
+.b{margin:8px 12% 8px 0;background:var(--panel);border:1px solid var(--line);padding:8px 10px;border-radius:8px}
+details{margin-top:6px;font-size:13px;color:var(--mute)}details li{margin:2px 0}
+.st{display:inline-block;min-width:22px;text-align:center;border-radius:4px;background:var(--line);margin-right:6px;font-size:12px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;font-size:13px}.flow span{padding:3px 8px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.flow .l{border-color:var(--ac);color:var(--ac)}.flow .r{border-color:var(--ok);color:var(--ok)}.flow .g{border-color:var(--ag);color:var(--ag)}
+</style></head><body>
+<section id="auth"><h2>TaskMind</h2><p>Demo sign-in stored only in this browser. Production needs hashed passwords and server sessions.</p>
+<input id="an" placeholder="Name (register only)" aria-label="Name"><input id="ae" type="email" placeholder="Email" aria-label="Email"><input id="ap" type="password" placeholder="Password" aria-label="Password">
+<div class="row"><button class="p" id="lg">Log in</button><button id="rg">Register</button></div><p id="ae2" style="color:var(--bad)"></p></section>
+<div id="app" hidden>
+<header><h1>TaskMind</h1><button class="tab on" data-v="dash">Dashboard</button><button class="tab" data-v="proj">Projects</button><button class="tab" data-v="task">Tasks</button><button class="tab" data-v="ai">AI agent</button><button id="out">Log out</button></header>
+<main>
+<section id="v-dash"></section>
+<section id="v-proj" hidden><div class="card"><h2>New project</h2><div class="row"><input id="pn" placeholder="Project name" aria-label="Project name"><input id="pd" placeholder="Description" aria-label="Description"><button class="p" id="pa">Create</button></div></div><div id="pl"></div></section>
+<section id="v-task" hidden><div class="card"><h2>New task</h2><div class="row"><input id="tt" placeholder="Title" aria-label="Title"><select id="tp" aria-label="Project"></select><input id="ta" placeholder="Assignee" aria-label="Assignee"></div>
+<div class="row"><select id="tr" aria-label="Priority"><option>medium</option><option>high</option><option>low</option></select><input id="tdue" type="date" aria-label="Due date"><input id="tds" placeholder="Description" aria-label="Description"><button class="p" id="tadd">Add task</button></div></div>
+<div class="row"><input id="fq" placeholder="Search tasks" aria-label="Search"><select id="fs" aria-label="Status filter"><option value="">Any status</option><option>todo</option><option>in progress</option><option>done</option></select><select id="fp" aria-label="Priority filter"><option value="">Any priority</option><option>high</option><option>medium</option><option>low</option></select></div><div class="card" id="tl"></div></section>
+<section id="v-ai" hidden><div class="card"><h2>AI agent</h2>
+<div class="flow"><span class="l">1 LLM: understand</span><span class="r">2 RAG: retrieve</span><span class="l">3 LLM: plan</span><span class="g">4 Agent: act</span><span class="l">5 LLM: answer</span></div>
+<p class="m">Every message runs all five steps. Demo mode uses a rule-based stand-in for the LLM and real keyword retrieval over your projects, tasks and activity. Deletes wait for your approval.</p>
+<div id="chat" aria-live="polite"></div>
+<div class="row"><input id="q" placeholder="Try: add task Fix login bug in Website high priority assign to Sam due tomorrow" aria-label="Message the agent"><button class="a" id="send">Send</button></div>
+<div class="row">
+<button class="ex">What is overdue?</button><button class="ex">Summarize project Website</button><button class="ex">Mark login bug as done</button><button class="ex">Delete task login bug</button><button class="ex">Who is working on design?</button></div></div></section>
+</main></div>
+<script>
+const K="taskmind-v1",$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const uid=()=>Math.random().toString(36).slice(2,8),day=(n=0)=>{const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
+let D={users:{},data:{},session:null};
+try{D=JSON.parse(localStorage.getItem(K))||D}catch(e){}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(D))}catch(e){}},M=()=>D.data[D.session];
+const pname=id=>(M().projects.find(p=>p.id==id)||{}).name||"none";
+const log=t=>{M().log.push({t:new Date().toISOString().slice(0,16).replace("T"," ")+" "+t});save()};
+/* auth (demo only) */
+function enter(e){D.session=e;save();$("#auth").hidden=true;$("#app").hidden=false;show("dash")}
+$("#rg").onclick=()=>{const e=$("#ae").value.trim().toLowerCase(),p=$("#ap").value;if(!e||p.length<4)return $("#ae2").textContent="Enter an email and a password of 4+ characters.";
+ if(D.users[e])return $("#ae2").textContent="That email is already registered.";D.users[e]={name:$("#an").value||e,pw:p};
+ const w=uid();D.data[e]={projects:[{id:w,name:"Website",desc:"Redesign the marketing site and login flow"},{id:"p"+uid(),name:"Mobile app",desc:"First release of the iOS and Android app"}],tasks:[],log:[]};
+ const T=D.data[e].tasks;[["Fix login bug","Users are logged out after refresh","in progress","high","Sam",-1,0],["Design pricing page","Layout and copy for pricing","todo","medium","Priya",3,0],["Write release notes","Notes for version 1","todo","low","Sam",7,1],["Set up push notifications","Firebase setup for the app","todo","high","Lee",-2,1]].forEach(r=>T.push({id:uid(),title:r[0],desc:r[1],status:r[2],priority:r[3],assignee:r[4],due:day(r[5]),project:D.data[e].projects[r[6]].id}));
+ enter(e);log("Workspace created")};
+$("#lg").onclick=()=>{const e=$("#ae").value.trim().toLowerCase(),u=D.users[e];if(!u||u.pw!==$("#ap").value)return $("#ae2").textContent="Email or password is wrong.";enter(e)};
+$("#out").onclick=()=>{D.session=null;save();$("#app").hidden=true;$("#auth").hidden=false};
+function show(v){$$(".tab").forEach(b=>b.classList.toggle("on",b.dataset.v==v));["dash","proj","task","ai"].forEach(x=>$("#v-"+x).hidden=x!=v);({dash,proj,task,ai:()=>{}})[v]()}
+$$(".tab").forEach(b=>b.onclick=()=>show(b.dataset.v));
+const over=t=>t.status!="done"&&t.due&&t.due<day();
+function dash(){const d=M(),n=s=>d.tasks.filter(t=>t.status==s).length;
+ $("#v-dash").innerHTML=`<div class="stats"><div>Total<b>${d.tasks.length}</b></div><div>To do<b>${n("todo")}</b></div><div>In progress<b>${n("in progress")}</b></div><div>Done<b>${n("done")}</b></div><div>Overdue<b style="color:var(--bad)">${d.tasks.filter(over).length}</b></div></div>
+ <div class="card"><h2>Project progress</h2>${d.projects.map(p=>{const ts=d.tasks.filter(t=>t.project==p.id),pc=ts.length?Math.round(ts.filter(t=>t.status=="done").length/ts.length*100):0;return`<div>${esc(p.name)} <span class="m">${pc}% of ${ts.length} tasks</span><div class="bar"><i style="width:${pc}%"></i></div></div>`}).join("")||"<p class=m>No projects yet.</p>"}</div>
+ <div class="card"><h2>Recent activity</h2>${d.log.slice(-8).reverse().map(l=>`<div class="m">${esc(l.t)}</div>`).join("")||"<p class=m>Nothing yet.</p>"}</div>`}
+function proj(){const d=M();$("#pl").innerHTML=d.projects.map(p=>`<div class="card"><div class="row"><h3 style="flex:1">${esc(p.name)}</h3><button class="x" data-dp="${p.id}">Delete</button></div><p class="m">${esc(p.desc)}</p><p class="m">${d.tasks.filter(t=>t.project==p.id).length} tasks</p></div>`).join("");
+ $$("[data-dp]").forEach(b=>b.onclick=()=>{const d=M(),p=d.projects.find(x=>x.id==b.dataset.dp);if(!confirm("Delete "+p.name+" and its tasks?"))return;d.projects=d.projects.filter(x=>x!=p);d.tasks=d.tasks.filter(t=>t.project!=p.id);log("Deleted project "+p.name);proj()})}
+$("#pa").onclick=()=>{const n=$("#pn").value.trim();if(!n)return;M().projects.push({id:uid(),name:n,desc:$("#pd").value});log("Created project "+n);$("#pn").value=$("#pd").value="";proj()};
+function task(){const d=M();$("#tp").innerHTML=d.projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
+ const q=$("#fq").value.toLowerCase(),fs=$("#fs").value,fp=$("#fp").value,L=d.tasks.filter(t=>(!q||(t.title+t.desc+t.assignee).toLowerCase().includes(q))&&(!fs||t.status==fs)&&(!fp||t.priority==fp));
+ $("#tl").innerHTML=L.map(t=>`<div class="t"><div><b>${esc(t.title)}</b> <span class="m">${esc(pname(t.project))} · ${esc(t.assignee||"unassigned")} · due ${esc(t.due||"none")}${over(t)?' · <span style="color:var(--bad)">overdue</span>':""}</span><div class="m">${esc(t.desc)}</div></div>
+ <div class="row"><span class="pri-${t.priority}">${t.priority}</span><select data-ts="${t.id}" aria-label="Status of ${esc(t.title)}">${["todo","in progress","done"].map(s=>`<option ${s==t.status?"selected":""}>${s}</option>`).join("")}</select><button class="x" data-td="${t.id}">Delete</button></div></div>`).join("")||"<p class=m>No tasks match.</p>";
+ $$("[data-ts]").forEach(s=>s.onchange=()=>{const t=M().tasks.find(x=>x.id==s.dataset.ts);t.status=s.value;log(`"${t.title}" set to ${t.status}`);task()});
+ $$("[data-td]").forEach(b=>b.onclick=()=>{const d=M(),t=d.tasks.find(x=>x.id==b.dataset.td);d.tasks=d.tasks.filter(x=>x!=t);log("Deleted task "+t.title);task()})}
+$("#tadd").onclick=()=>{const t=$("#tt").value.trim();if(!t||!$("#tp").value)return;M().tasks.push({id:uid(),title:t,desc:$("#tds").value,status:"todo",priority:$("#tr").value,assignee:$("#ta").value,due:$("#tdue").value,project:$("#tp").value});log("Created task "+t);$("#tt").value=$("#tds").value="";task()};
+["#fq","#fs","#fp"].forEach(s=>$(s).oninput=task);
+/* ---------- RAG ---------- */
+const STOP=new Set("the and for with that this what who how are was has have from into about task tasks project status priority due".split(" "));
+const tok=s=>(String(s).toLowerCase().match(/[a-z0-9]+/g)||[]).filter(w=>w.length>2&&!STOP.has(w));
+function chunks(){const d=M();return[...d.projects.map(p=>({type:"project",ref:p.id,text:`Project ${p.name}. ${p.desc}`})),
+ ...d.tasks.map(t=>({type:"task",ref:t.id,text:`${t.title}. ${t.desc}. ${t.status}. ${t.priority} priority. assigned ${t.assignee||"nobody"}. due ${t.due||"none"}. project ${pname(t.project)}.`})),
+ ...d.log.slice(-15).map((l,i)=>({type:"activity",ref:"a"+i,text:l.t}))]}
+function retrieve(q,k=4){const cs=chunks(),docs=cs.map(c=>tok(c.text)),N=docs.length,df={};docs.forEach(x=>new Set(x).forEach(w=>df[w]=(df[w]||0)+1));
+ const idf=w=>Math.log(1+N/(1+(df[w]||0))),qv=tok(q);
+ return cs.map((c,i)=>{const tf={};docs[i].forEach(w=>tf[w]=(tf[w]||0)+1);let s=0;qv.forEach(w=>{if(tf[w])s+=tf[w]*idf(w)});return{...c,score:+(s/Math.sqrt(docs[i].length||1)).toFixed(2)}}).filter(c=>c.score>0).sort((a,b)=>b.score-a.score).slice(0,k)}
+/* ---------- LLM adapter: swap these three functions for real model calls (see README) ---------- */
+const SM={"todo":"todo","to do":"todo","in progress":"in progress","done":"done","complete":"done","completed":"done"};
+function llmUnderstand(q){let m;
+ if(m=q.match(/(?:create|new|add)\s+(?:a\s+)?project\s*(?:called|named|:)?\s*(.+)/i))return{name:"create_project",args:{name:m[1].trim()}};
+ if(m=q.match(/(?:create|new|add)\s+(?:a\s+)?task\s*(?:called|named|:)?\s*(.+)/i)){let r=m[1],a={},x;
+  if(x=r.match(/assign(?:ed)?\s+to\s+(\w+)/i)){a.assignee=x[1];r=r.replace(x[0],"")}
+  if(x=r.match(/\b(high|medium|low)\b(?:\s+priority)?/i)){a.priority=x[1].toLowerCase();r=r.replace(x[0],"")}
+  if(x=r.match(/due\s+(tomorrow|today|in\s+\d+\s+days|\d{4}-\d\d-\d\d)/i)){const v=x[1].toLowerCase();a.due=v=="today"?day():v=="tomorrow"?day(1):/^in/.test(v)?day(+v.match(/\d+/)[0]):v;r=r.replace(x[0],"")}
+  const p=M().projects.find(p=>r.toLowerCase().includes(p.name.toLowerCase()));if(p){a.project=p.id;r=r.replace(new RegExp("\\s*(?:in|to|for|under)?\\s*(?:project\\s+)?"+p.name.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"i"),"")}
+  a.title=r.replace(/\s+/g," ").replace(/\s*\b(in|to|for)$/i,"").trim();return{name:"create_task",args:a}}
+ if(m=q.match(/(?:mark|set|move)\s+(.+?)\s+(?:as|to)\s+(to do|todo|in progress|done|completed?)\b/i))return{name:"update_task",args:{target:m[1],status:SM[m[2].toLowerCase()]}};
+ if(m=q.match(/(?:delete|remove)\s+(?:the\s+)?(?:task\s+)?(.+)/i))return{name:"delete_task",args:{target:m[1]}};
+ if(/overdue|late|behind/i.test(q))return{name:"list_overdue",args:{}};
+ if(/summar|report|progress|status|remaining|left/i.test(q))return{name:"summarize",args:{q}};
+ return{name:"answer",args:{q}}}
+function llmPlan(it,ctx){const t=(ctx.find(c=>c.type=="task")||{}).ref;const need={update_task:1,delete_task:1}[it.name];
+ if(need&&!t)return[{tool:"none",why:"No matching task found in retrieved context"}];
+ const a={...it.args};if(need)a.id=t;return[{tool:it.name,args:a,why:need?`Grounded target: "${(ctx.find(c=>c.type=="task")||{}).text.split(".")[0]}"`:"Direct request"}]}
+function llmAnswer(it,res,ctx){if(res.msg)return res.msg;if(!ctx.length)return"I found nothing in your workspace that matches that. Try naming a task, person or project.";
+ return"From your workspace: "+ctx.map((c,i)=>`${c.text.replace(/\.\s*$/,"")} [${i+1}]`).join(" ")}
+/* ---------- agent tools ---------- */
+const TOOLS={
+ create_project:a=>{M().projects.push({id:uid(),name:a.name,desc:""});log("Agent created project "+a.name);return{msg:`Created project "${a.name}".`}},
+ create_task:a=>{const d=M();if(!a.title)return{msg:"I need a task title."};const p=a.project||(d.projects[0]||{}).id;if(!p)return{msg:"Create a project first."};
+  d.tasks.push({id:uid(),title:a.title,desc:"",status:"todo",priority:a.priority||"medium",assignee:a.assignee||"",due:a.due||"",project:p});log("Agent created task "+a.title);
+  return{msg:`Created "${a.title}" in ${pname(p)} (${a.priority||"medium"} priority${a.assignee?", assigned to "+a.assignee:""}${a.due?", due "+a.due:""}).`}},
+ update_task:a=>{const t=M().tasks.find(x=>x.id==a.id);if(!a.status)return{msg:"Which status: todo, in progress or done?"};t.status=a.status;log(`Agent set "${t.title}" to ${a.status}`);return{msg:`Marked "${t.title}" as ${a.status}.`}},
+ delete_task:a=>{const t=M().tasks.find(x=>x.id==a.id);return{approval:{id:a.id,label:`Delete task "${t.title}"`}}},
+ list_overdue:()=>{const L=M().tasks.filter(over);return{msg:L.length?"Overdue: "+L.map(t=>`${t.title} (${t.assignee||"unassigned"}, due ${t.due})`).join("; ")+".":"Nothing is overdue."}},
+ summarize:a=>{const d=M(),p=d.projects.find(p=>a.q.toLowerCase().includes(p.name.toLowerCase())),ts=p?d.tasks.filter(t=>t.project==p.id):d.tasks,n=s=>ts.filter(t=>t.status==s).length;
+  return{msg:`${p?p.name:"All projects"}: ${ts.length} tasks, ${n("done")} done, ${n("in progress")} in progress, ${n("todo")} to do, ${ts.filter(over).length} overdue.`}},
+ answer:()=>({}),none:()=>({})};
+const chat=$("#chat");let pend={};
+const add=(c,h)=>{const e=document.createElement("div");e.className=c;e.innerHTML=h;chat.appendChild(e);chat.scrollTop=chat.scrollHeight;return e};
+function run(q){add("u",esc(q));const it=llmUnderstand(q),ctx=retrieve(q),plan=llmPlan(it,ctx),tr=[];
+ tr.push(`<li><span class="st">1</span>LLM understood: <b>${it.name}</b></li>`);
+ tr.push(`<li><span class="st">2</span>RAG retrieved ${ctx.length} chunk(s): ${ctx.map((c,i)=>`[${i+1}] ${c.type}, score ${c.score}`).join("; ")||"none"}</li>`);
+ tr.push(`<li><span class="st">3</span>LLM plan: ${plan.map(s=>esc(s.tool+" ("+s.why+")")).join("; ")}</li>`);
+ let res={};plan.forEach(s=>{res=TOOLS[s.tool](s.args||{})});
+ tr.push(`<li><span class="st">4</span>Agent ${res.approval?"is waiting for your approval":"executed"} ${esc(plan[0].tool)}</li>`);
+ const ans=res.approval?`I can do this, but it changes your data: <b>${esc(res.approval.label)}</b>. <button class="x" data-ap="${res.approval.id}">Approve delete</button>`:esc(llmAnswer(it,res,ctx));
+ add("b",`${ans}<details><summary>How the agent got there</summary><ul>${tr.join("")}<li><span class="st">5</span>LLM wrote the answer from tool results and retrieved chunks</li></ul></details>`);
+ $$("[data-ap]").forEach(b=>b.onclick=()=>{const d=M(),t=d.tasks.find(x=>x.id==b.dataset.ap);if(t){d.tasks=d.tasks.filter(x=>x!=t);log("Agent deleted task "+t.title)}b.disabled=true;add("b",t?`Deleted "${esc(t.title)}".`:"That task was already gone.")})}
+$("#send").onclick=()=>{const q=$("#q").value.trim();if(q){$("#q").value="";run(q)}};
+$("#q").onkeydown=e=>{if(e.key=="Enter")$("#send").click()};
+$$(".ex").forEach(b=>b.onclick=()=>run(b.textContent));
+if(D.session&&D.data[D.session])enter(D.session);
+</script></body></html>
